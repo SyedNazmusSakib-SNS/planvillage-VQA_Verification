@@ -1,14 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server"
-import fs from "fs"
-import path from "path"
 
-const DATA_DIR = path.join(process.cwd(), "data")
-const SESSIONS_FILE = path.join(DATA_DIR, "sessions.json")
-
-// Ensure data directory exists
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true })
-}
+// In-memory storage (replace with database in production)
+const sessions: Record<string, any> = {}
+const globalReviewed: string[] = []
 
 interface Session {
   userId: string
@@ -21,26 +15,6 @@ interface Session {
   lastActive: string
 }
 
-function loadSessions(): Record<string, Session> {
-  try {
-    if (fs.existsSync(SESSIONS_FILE)) {
-      const data = fs.readFileSync(SESSIONS_FILE, "utf8")
-      return JSON.parse(data)
-    }
-  } catch (error) {
-    console.error("Error loading sessions:", error)
-  }
-  return {}
-}
-
-function saveSessions(sessions: Record<string, Session>) {
-  try {
-    fs.writeFileSync(SESSIONS_FILE, JSON.stringify(sessions, null, 2))
-  } catch (error) {
-    console.error("Error saving sessions:", error)
-  }
-}
-
 export async function POST(request: NextRequest) {
   try {
     const { userName } = await request.json()
@@ -49,9 +23,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "User name is required" }, { status: 400 })
     }
 
-    const sessions = loadSessions()
     const userId = userName.toLowerCase().replace(/[^a-z0-9]/g, "_")
-
     let session = sessions[userId]
 
     if (!session) {
@@ -72,7 +44,6 @@ export async function POST(request: NextRequest) {
     }
 
     sessions[userId] = session
-    saveSessions(sessions)
 
     return NextResponse.json({ session })
   } catch (error) {
@@ -90,7 +61,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "User ID is required" }, { status: 400 })
     }
 
-    const sessions = loadSessions()
     const session = sessions[userId]
 
     if (!session) {

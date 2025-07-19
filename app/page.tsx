@@ -209,8 +209,14 @@ export default function PlantValidation() {
 
       const data = await response.json()
       if (response.ok) {
-        // Download the file
-        window.open(data.downloadUrl, "_blank")
+        // Create and download CSV file
+        const blob = new Blob([data.csvContent], { type: "text/csv" })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement("a")
+        a.href = url
+        a.download = `feedback_${session.userName}_${new Date().toISOString().slice(0, 10)}.csv`
+        a.click()
+        URL.revokeObjectURL(url)
 
         // Reset for new batch
         setCurrentBatch([])
