@@ -283,20 +283,20 @@ export default function PlantValidation() {
                   onValueChange={handleRelevanceChange}
                   className="space-y-2"
                 >
-                  {[
-                    { value: "excellent", label: "Excellent: Accurate, relevant, high-quality" },
-                    { value: "good", label: "Good: Mostly accurate, minor issues" },
-                    { value: "okay", label: "Okay: Understandable but noticeable flaws" },
-                    { value: "poor", label: "Poor: Largely irrelevant or incorrect" },
-                    { value: "unsalvageable", label: "Unsalvageable: Completely wrong" },
-                  ].map((option) => (
+                    {[
+                    { value: "strongly_agree", label: "Strongly Agree" },
+                    { value: "agree", label: "Agree" },
+                    { value: "neutral", label: "Neither Agree nor Disagree" },
+                    { value: "disagree", label: "Disagree" },
+                    { value: "strongly_disagree", label: "Strongly Disagree" },
+                    ].map((option) => (
                     <div key={option.value} className="flex items-start space-x-2">
                       <RadioGroupItem value={option.value} id={option.value} className="mt-0.5" />
                       <Label htmlFor={option.value} className="text-sm leading-relaxed">
-                        {option.label}
+                      {option.label}
                       </Label>
                     </div>
-                  ))}
+                    ))}
                 </RadioGroup>
               </div>
 
