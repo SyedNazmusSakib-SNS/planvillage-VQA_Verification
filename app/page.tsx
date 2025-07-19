@@ -7,7 +7,8 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Progress } from "@/components/ui/progress"
-import { Download, ArrowLeft, ArrowRight } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Download, ArrowLeft, ArrowRight, User } from "lucide-react"
 
 interface QAPair {
   image_id: string
@@ -25,8 +26,18 @@ interface Feedback {
   primary_issues: string[]
 }
 
+interface Session {
+  userId: string
+  userName: string
+  currentBatch: string[]
+  currentIndex: number
+  completedImages: string[]
+  feedback: Feedback[]
+}
+
 export default function PlantValidation() {
-  const [qaPairs, setQaPairs] = useState<QAPair[]>([])
+  const [session, setSession] = useState<Session | null>(null)
+  const [userName, setUserName] = useState("")
   const [currentBatch, setCurrentBatch] = useState<QAPair[]>([])
   const [currentIndex, setCurrentIndex] = useState(0)
   const [feedback, setFeedback] = useState<Feedback[]>([])
@@ -37,92 +48,89 @@ export default function PlantValidation() {
     relevance_rating: "",
     primary_issues: [],
   })
-  const [batchNumber, setBatchNumber] = useState(0)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    loadCSVData()
-  }, [])
-
-  useEffect(() => {
-    if (qaPairs.length > 0) {
-      generateNewBatch()
-    }
-  }, [qaPairs])
+  const [loading, setLoading] = useState(false)
+  const [loginMode, setLoginMode] = useState(true)
 
   useEffect(() => {
     if (currentBatch.length > 0) {
       const current = currentBatch[currentIndex]
-      setCurrentFeedback({
-        image_id: current.image_id,
-        question: current.question,
-        answer: current.answer,
-        relevance_rating: "",
-        primary_issues: [],
-      })
+      const existingFeedback = feedback.find((f) => f.image_id === current.image_id)
+
+      setCurrentFeedback(
+        existingFeedback || {
+          image_id: current.image_id,
+          question: current.question,
+          answer: current.answer,
+          relevance_rating: "",
+          primary_issues: [],
+        },
+      )
     }
-  }, [currentIndex, currentBatch])
+  }, [currentIndex, currentBatch, feedback])
 
-  const loadCSVData = async () => {
+  const handleLogin = async () => {
+    if (!userName.trim()) return
+
+    setLoading(true)
     try {
-      const response = await fetch("/expert_validation_set.csv")
-      const csvText = await response.text()
+      const response = await fetch("/api/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userName: userName.trim() }),
+      })
 
-      // Proper CSV parsing function that handles quoted fields
-      const parseCSVLine = (line: string): string[] => {
-        const result: string[] = []
-        let current = ""
-        let inQuotes = false
+      const data = await response.json()
+      if (response.ok) {
+        setSession(data.session)
+        setFeedback(data.session.feedback || [])
+        setCurrentIndex(data.session.currentIndex || 0)
 
-        for (let i = 0; i < line.length; i++) {
-          const char = line[i]
-
-          if (char === '"') {
-            inQuotes = !inQuotes
-          } else if (char === "," && !inQuotes) {
-            result.push(current.trim())
-            current = ""
-          } else {
-            current += char
-          }
+        // If user has an active batch, load it
+        if (data.session.currentBatch && data.session.currentBatch.length > 0) {
+          await loadCurrentBatch(data.session.userId)
         }
 
-        result.push(current.trim())
-        return result
+        setLoginMode(false)
+      } else {
+        alert(data.error || "Login failed")
       }
-
-      const lines = csvText.split("\n").slice(1) // Skip header
-
-      const parsedData: QAPair[] = lines
-        .filter((line) => line.trim())
-        .map((line) => {
-          const [image_id, question_type, question, answer, image_path] = parseCSVLine(line)
-          return {
-            image_id: image_id || "",
-            question_type: question_type || "",
-            question: question || "",
-            answer: answer || "",
-            image_path: image_path || "",
-          }
-        })
-        .filter((item) => item.image_id && item.image_path) // Filter out invalid entries
-
-      console.log("Parsed data sample:", parsedData.slice(0, 3)) // Debug log
-      setQaPairs(parsedData)
-      setLoading(false)
     } catch (error) {
-      console.error("Error loading CSV:", error)
-      setLoading(false)
+      console.error("Login error:", error)
+      alert("Login failed")
     }
+    setLoading(false)
   }
 
-  const generateNewBatch = () => {
-    const shuffled = [...qaPairs].sort(() => Math.random() - 0.5)
-    const batch = shuffled.slice(0, 50)
-    setCurrentBatch(batch)
-    setCurrentIndex(0)
-    setFeedback([])
-    setBatchNumber((prev) => prev + 1)
+  const loadCurrentBatch = async (userId: string) => {
+    // This would need to be implemented to reconstruct the current batch
+    // For now, we'll start a new batch if needed
+  }
+
+  const startNewBatch = async () => {
+    if (!session) return
+
+    setLoading(true)
+    try {
+      const response = await fetch("/api/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: session.userId }),
+      })
+
+      const data = await response.json()
+      if (response.ok) {
+        setCurrentBatch(data.batch)
+        setCurrentIndex(0)
+        setFeedback([])
+        setSession(data.session)
+      } else {
+        alert(data.error || "Failed to create new batch")
+      }
+    } catch (error) {
+      console.error("Batch creation error:", error)
+      alert("Failed to create new batch")
+    }
+    setLoading(false)
   }
 
   const handleRelevanceChange = (value: string) => {
@@ -139,7 +147,7 @@ export default function PlantValidation() {
     }))
   }
 
-  const saveFeedback = () => {
+  const saveFeedback = async () => {
     const updatedFeedback = [...feedback]
     const existingIndex = updatedFeedback.findIndex((f) => f.image_id === currentFeedback.image_id)
 
@@ -150,65 +158,131 @@ export default function PlantValidation() {
     }
 
     setFeedback(updatedFeedback)
+
+    // Save to backend
+    if (session) {
+      try {
+        await fetch("/api/feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userId: session.userId,
+            feedback: updatedFeedback,
+            currentIndex,
+          }),
+        })
+      } catch (error) {
+        console.error("Error saving feedback:", error)
+      }
+    }
   }
 
-  const nextQuestion = () => {
-    saveFeedback()
+  const nextQuestion = async () => {
+    await saveFeedback()
     if (currentIndex < currentBatch.length - 1) {
       setCurrentIndex(currentIndex + 1)
     }
   }
 
-  const previousQuestion = () => {
-    saveFeedback()
+  const previousQuestion = async () => {
+    await saveFeedback()
     if (currentIndex > 0) {
       setCurrentIndex(currentIndex - 1)
     }
   }
 
-  const downloadFeedback = () => {
-    const csvContent = [
-      "image_id,question,answer,relevance_rating,primary_issues",
-      ...feedback.map(
-        (f) => `"${f.image_id}","${f.question}","${f.answer}","${f.relevance_rating}","${f.primary_issues.join("; ")}"`,
-      ),
-    ].join("\n")
+  const completeBatch = async () => {
+    await saveFeedback()
 
-    const blob = new Blob([csvContent], { type: "text/csv" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `feedback_batch_${batchNumber}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+    if (!session) return
+
+    setLoading(true)
+    try {
+      const response = await fetch("/api/feedback", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: session.userId,
+          feedback: [...feedback, currentFeedback],
+        }),
+      })
+
+      const data = await response.json()
+      if (response.ok) {
+        // Download the file
+        window.open(data.downloadUrl, "_blank")
+
+        // Reset for new batch
+        setCurrentBatch([])
+        setCurrentIndex(0)
+        setFeedback([])
+
+        alert(`Batch completed! ${data.reviewedCount} total images have been reviewed globally.`)
+      } else {
+        alert(data.error || "Failed to complete batch")
+      }
+    } catch (error) {
+      console.error("Batch completion error:", error)
+      alert("Failed to complete batch")
+    }
+    setLoading(false)
   }
 
-  const startNewBatch = () => {
-    generateNewBatch()
+  // Login screen
+  if (loginMode) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle className="text-center flex items-center justify-center gap-2">
+              <User className="w-5 h-5" />
+              Plant Disease Validation
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label htmlFor="userName">Enter your name to continue:</Label>
+              <Input
+                id="userName"
+                value={userName}
+                onChange={(e) => setUserName(e.target.value)}
+                placeholder="e.g., Dr. Smith"
+                onKeyPress={(e) => e.key === "Enter" && handleLogin()}
+              />
+            </div>
+            <Button onClick={handleLogin} className="w-full" disabled={!userName.trim() || loading}>
+              {loading ? "Logging in..." : "Start Validation"}
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
+  // Loading screen
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading validation data...</p>
+          <p className="text-gray-600">Loading...</p>
         </div>
       </div>
     )
   }
 
+  // No batch screen
   if (currentBatch.length === 0) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <Card className="w-full max-w-md">
           <CardHeader>
-            <CardTitle className="text-center">Plant Disease Validation</CardTitle>
+            <CardTitle className="text-center">Welcome, {session?.userName}</CardTitle>
           </CardHeader>
-          <CardContent className="text-center">
-            <p className="mb-4 text-gray-600">Ready to start validation batch #{batchNumber + 1}</p>
-            <Button onClick={generateNewBatch} className="w-full">
-              Start New Batch (50 Questions)
+          <CardContent className="text-center space-y-4">
+            <p className="text-gray-600">You have completed {session?.completedImages.length || 0} images so far.</p>
+            <Button onClick={startNewBatch} className="w-full" disabled={loading}>
+              {loading ? "Creating Batch..." : "Start New Batch (50 Questions)"}
             </Button>
           </CardContent>
         </Card>
@@ -218,16 +292,18 @@ export default function PlantValidation() {
 
   const current = currentBatch[currentIndex]
   const progress = ((currentIndex + 1) / currentBatch.length) * 100
-  const existingFeedback = feedback.find((f) => f.image_id === current.image_id)
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-center mb-2">Plant Disease Validation</h1>
+          <div className="flex justify-between items-center mb-2">
+            <h1 className="text-2xl font-bold">Plant Disease Validation</h1>
+            <span className="text-sm text-gray-600">Welcome, {session?.userName}</span>
+          </div>
           <div className="flex justify-between items-center mb-4">
-            <span className="text-sm text-gray-600">Batch #{batchNumber}</span>
+            <span className="text-sm text-gray-600">Total completed: {session?.completedImages.length || 0}</span>
             <span className="text-sm text-gray-600">
               Question {currentIndex + 1} of {currentBatch.length}
             </span>
@@ -279,7 +355,7 @@ export default function PlantValidation() {
                   1. How relevant and accurate is this Question-Answer pair to the provided image?
                 </Label>
                 <RadioGroup
-                  value={existingFeedback?.relevance_rating || currentFeedback.relevance_rating}
+                  value={currentFeedback.relevance_rating}
                   onValueChange={handleRelevanceChange}
                   className="space-y-2"
                 >
@@ -316,7 +392,7 @@ export default function PlantValidation() {
                     <div key={issue} className="flex items-start space-x-2">
                       <Checkbox
                         id={issue}
-                        checked={(existingFeedback?.primary_issues || currentFeedback.primary_issues).includes(issue)}
+                        checked={currentFeedback.primary_issues.includes(issue)}
                         onCheckedChange={(checked) => handleIssueChange(issue, checked as boolean)}
                         className="mt-0.5"
                       />
@@ -345,22 +421,10 @@ export default function PlantValidation() {
 
           <div className="flex gap-2">
             {currentIndex === currentBatch.length - 1 ? (
-              <>
-                <Button
-                  onClick={() => {
-                    saveFeedback()
-                    downloadFeedback()
-                  }}
-                  className="flex items-center gap-2"
-                  disabled={feedback.length < currentBatch.length - 1}
-                >
-                  <Download className="w-4 h-4" />
-                  Download Feedback ({feedback.length + 1}/{currentBatch.length})
-                </Button>
-                <Button onClick={startNewBatch} variant="outline">
-                  New Batch
-                </Button>
-              </>
+              <Button onClick={completeBatch} className="flex items-center gap-2" disabled={loading}>
+                <Download className="w-4 h-4" />
+                {loading ? "Completing..." : "Complete & Download"}
+              </Button>
             ) : (
               <Button onClick={nextQuestion} className="flex items-center gap-2">
                 Next
